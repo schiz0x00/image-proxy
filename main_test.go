@@ -5,9 +5,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	os.Setenv("IMAGE_PROXY_DISABLE_SSRF_CHECK", "1")
+	disableSSRFCheck = true // init() ran before the env var was set
+	defer os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")
+	m.Run()
+}
 
 func doReq(t *testing.T, target string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -60,5 +68,38 @@ func TestOriginStatusPassthrough(t *testing.T) {
 func TestOriginUnreachable(t *testing.T) {
 	if w := doReq(t, "/image?url="+url.QueryEscape("http://127.0.0.1:1/x.png")); w.Code != 502 {
 		t.Errorf("expected 502, got %d", w.Code)
+	}
+}
+
+func TestSSRFBlocking(t *testing.T) {
+	// Re-init with SSRF check enabled for this test.
+	os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")
+	disableSSRFCheck = false
+
+	t.Cleanup(func() {
+		os.Setenv("IMAGE_PROXY_DISABLE_SSRF_CHECK", "1")
+		disableSSRFCheck = true
+	})
+
+	tests := []struct {
+		label string
+		url   string
+	}{
+		{"loopback IPv4", "http://127.0.0.1:9999/img.png"},
+		{"loopback IPv6", "http://[::1]:9999/img.png"},
+		{"private 10.x", "http://10.0.0.1/img.png"},
+		{"private 172.16", "http://172.16.0.1/img.png"},
+		{"private 192.168", "http://192.168.1.1/img.png"},
+		{"link-local", "http://169.254.169.254/img.png"},
+		{"unspecified", "http://0.0.0.0/img.png"},
+		{"hostname localhost", "http://localhost:9999/img.png"},
+		{"hostname .local", "http://myhost.local/img.png"},
+		{"hostname .internal", "http://myhost.internal/img.png"},
+	}
+	for _, tt := range tests {
+		w := doReq(t, "/image?url="+url.QueryEscape(tt.url))
+		if w.Code != 403 {
+			t.Errorf("%s: expected 403, got %d", tt.label, w.Code)
+		}
 	}
 }
