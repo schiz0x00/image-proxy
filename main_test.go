@@ -71,6 +71,33 @@ func TestOriginUnreachable(t *testing.T) {
 	}
 }
 
+func TestRedirectBlocking(t *testing.T) {
+	// Origin that redirects to a private IP — redirect should be blocked
+	// even though the initial request to localhost is allowed (SSRF bypass).
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer origin.Close()
+
+	w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/redirect"))
+	if w.Code != 502 {
+		t.Errorf("expected 502 from blocked redirect, got %d", w.Code)
+	}
+}
+
+func TestRedirectLimit(t *testing.T) {
+	// Redirect loop — should be stopped at 5 hops.
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, r.URL.String(), http.StatusFound)
+	}))
+	defer origin.Close()
+
+	w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/loop"))
+	if w.Code != 502 {
+		t.Errorf("expected 502 from redirect loop, got %d", w.Code)
+	}
+}
+
 func TestSSRFBlocking(t *testing.T) {
 	// Re-init with SSRF check enabled for this test.
 	os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")

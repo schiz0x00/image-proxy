@@ -124,6 +124,21 @@ var originClient = &http.Client{
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       60 * time.Second,
 	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		// Limit to 5 redirects (Go default is 10).
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		// Validate the redirect target — same SSRF rules apply.
+		if blocked, _ := isBlockedHost(req.URL.Host); blocked {
+			return errors.New("redirect target blocked by SSRF policy")
+		}
+		// Only follow http/https redirects.
+		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+			return errors.New("redirect to non-http(s) target not allowed")
+		}
+		return nil
+	},
 }
 
 func main() {
