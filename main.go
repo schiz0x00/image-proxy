@@ -197,7 +197,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	originReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, imageURL, nil)
 	if err != nil {
-		http.Error(w, "Failed to create origin request: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("Failed to create origin request: %v", err)
+		http.Error(w, "Failed to create origin request", http.StatusInternalServerError)
 		return
 	}
 	for k, v := range originHeaders {
@@ -212,7 +213,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			(errors.As(err, &netErr) && netErr.Timeout()) {
 			status = http.StatusGatewayTimeout
 		}
-		http.Error(w, "Failed to fetch image from origin: "+err.Error(), status)
+		log.Printf("Failed to fetch image from origin: %v", err)
+		http.Error(w, http.StatusText(status), status)
 		return
 	}
 	defer resp.Body.Close()
