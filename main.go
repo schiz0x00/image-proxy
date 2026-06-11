@@ -19,6 +19,17 @@ const (
 	maxResponseBytes = 50 << 20
 )
 
+// redactURL strips query parameters from a URL for safe logging, keeping
+// the scheme, host, and path visible.
+func redactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Query().Encode() == "" {
+		return rawURL
+	}
+	u.RawQuery = "redacted"
+	return u.String()
+}
+
 // isBlockedHost checks whether the host resolves to a private, loopback,
 // link-local, multicast, or unspecified IP — classic SSRF targets. Also
 // blocks bare hostnames that are clearly local (e.g. "localhost").
@@ -189,7 +200,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !disableSSRFCheck {
 		if blocked, reason := isBlockedHost(u.Host); blocked {
-			log.Printf("Blocked SSRF attempt: host=%s reason=%s", u.Host, reason)
+			log.Printf("Blocked SSRF attempt: url=%s reason=%s", redactURL(imageURL), reason)
 			http.Error(w, "Blocked: target host is not allowed", http.StatusForbidden)
 			return
 		}
@@ -233,7 +244,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error streaming response body: %v", err)
 	}
-	log.Printf("%s status=%d bytes=%d duration=%s", imageURL, resp.StatusCode, written, time.Since(start))
+	log.Printf("%s status=%d bytes=%d duration=%s", redactURL(imageURL), resp.StatusCode, written, time.Since(start))
 }
 
 func writeCORS(w http.ResponseWriter) {
