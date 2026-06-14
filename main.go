@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -152,7 +153,86 @@ var originClient = &http.Client{
 	},
 }
 
+// ── Rate limiter ────────────────────────────────────────────────────
+
+type rateLimiter struct {
+	mu        sync.Mutex
+	clients   map[string]*clientBucket
+	rate      int // max requests per second
+	burst     int // burst capacity
+	lastPrune time.Time
+}
+
+type clientBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRateLimiter(rate, burst int) *rateLimiter {
+	return &rateLimiter{
+		clients:   make(map[string]*clientBucket),
+		rate:      rate,
+		burst:     burst,
+		lastPrune: time.Now(),
+	}
+}
+
+func (rl *rateLimiter) Allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+
+	// Prune stale entries every minute.
+	if now.Sub(rl.lastPrune) > time.Minute {
+		for k, b := range rl.clients {
+			if now.Sub(b.last) > 2*time.Minute {
+				delete(rl.clients, k)
+			}
+		}
+		rl.lastPrune = now
+	}
+
+	b, ok := rl.clients[ip]
+	if !ok {
+		b = &clientBucket{tokens: float64(rl.burst), last: now}
+		rl.clients[ip] = b
+	}
+
+	// Refill tokens based on elapsed time.
+	elapsed := now.Sub(b.last).Seconds()
+	b.tokens += elapsed * float64(rl.rate)
+	if b.tokens > float64(rl.burst) {
+		b.tokens = float64(rl.burst)
+	}
+	b.last = now
+
+	if b.tokens >= 1 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
+// rateLimitMiddleware wraps a handler with per-IP rate limiting.
+func rateLimitMiddleware(next http.Handler, rl *rateLimiter) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if !rl.Allow(ip) {
+			writeCORS(w)
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
+	rl := newRateLimiter(20, 40) // 20 req/s per IP, burst 40
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.HandleFunc("GET /image", proxyHandler)
@@ -160,7 +240,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:        ":8080",
-		Handler:     mux,
+		Handler:     rateLimitMiddleware(mux, rl),
 		ReadTimeout: 10 * time.Second,
 		// WriteTimeout stays 0 to allow streaming; upstream timeouts and
 		// client cancellation bound the response.
