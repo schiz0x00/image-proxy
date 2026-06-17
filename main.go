@@ -18,6 +18,7 @@ const (
 	defaultContentType = "image/jpeg"
 	// ponytail: 50MB cap, raise if legitimate images ever exceed it
 	maxResponseBytes = 50 << 20
+	maxURLLength     = 8 * 1024 // 8 KB max URL query param value
 )
 
 // redactURL strips query parameters from a URL for safe logging, keeping
@@ -239,12 +240,13 @@ func main() {
 	mux.HandleFunc("OPTIONS /image", optionsHandler)
 
 	server := &http.Server{
-		Addr:        ":8080",
-		Handler:     rateLimitMiddleware(mux, rl),
-		ReadTimeout: 10 * time.Second,
-		// WriteTimeout stays 0 to allow streaming; upstream timeouts and
-		// client cancellation bound the response.
-		IdleTimeout: 60 * time.Second,
+		Addr:              ":8080",
+		Handler:           rateLimitMiddleware(mux, rl),
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      60 * time.Second, // upper bound; slow clients disconnected
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024, // 16 KB max headers
 	}
 
 	log.Println("Starting image proxy on :8080")
@@ -269,6 +271,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	imageURL := r.URL.Query().Get("url")
 	if imageURL == "" {
 		http.Error(w, "Missing 'url' query parameter", http.StatusBadRequest)
+		return
+	}
+	if len(imageURL) > maxURLLength {
+		log.Printf("URL too long: %d bytes", len(imageURL))
+		http.Error(w, "URL too long", http.StatusBadRequest)
 		return
 	}
 
