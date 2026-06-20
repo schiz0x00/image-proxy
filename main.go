@@ -261,12 +261,14 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 func optionsHandler(w http.ResponseWriter, r *http.Request) {
 	writeCORS(w)
+	writeSecurityHeaders(w)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	writeCORS(w)
+	writeSecurityHeaders(w)
 
 	imageURL := r.URL.Query().Get("url")
 	if imageURL == "" {
@@ -337,4 +339,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 func writeCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+}
+
+func writeSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
