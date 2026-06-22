@@ -323,6 +323,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = defaultContentType
 	}
+	// Only allow image/* content types to prevent content-type confusion.
+	if !strings.HasPrefix(contentType, "image/") {
+		contentType = defaultContentType
+	}
 	w.Header().Set("Content-Type", contentType)
 	if cl := resp.Header.Get("Content-Length"); cl != "" {
 		w.Header().Set("Content-Length", cl)
