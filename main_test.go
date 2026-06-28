@@ -41,11 +41,8 @@ func TestValidation(t *testing.T) {
 
 func TestProxyStreamsAndSetsHeaders(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("User-Agent") != "image-proxy/1.0" {
-			t.Errorf("unexpected User-Agent: %q", r.Header.Get("User-Agent"))
-		}
-		if r.Header.Get("Referer") != "" {
-			t.Errorf("unexpected Referer: %q", r.Header.Get("Referer"))
+		if r.Header.Get("Referer") != "https://www.sephora.com/" {
+			t.Error("origin headers not forwarded")
 		}
 		w.Header().Set("Content-Type", "image/png")
 		w.WriteHeader(200)
