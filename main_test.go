@@ -98,6 +98,28 @@ func TestRedirectLimit(t *testing.T) {
 	}
 }
 
+// ssrfControl is the real boundary — it sees the resolved IP, so it holds even
+// when DNS rebinding makes the pre-flight hostname check pass.
+func TestSSRFControl(t *testing.T) {
+	disableSSRFCheck = false
+	t.Cleanup(func() { disableSSRFCheck = true })
+
+	for _, addr := range []string{
+		"169.254.169.254:80", // cloud metadata — the rebinding target
+		"127.0.0.1:8080",
+		"10.0.0.1:443",
+		"[::1]:80",
+		"metadata.google.internal:80", // unresolved name must never reach connect
+	} {
+		if err := ssrfControl("tcp", addr, nil); err == nil {
+			t.Errorf("%s: expected block, got nil", addr)
+		}
+	}
+	if err := ssrfControl("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Errorf("public IP blocked: %v", err)
+	}
+}
+
 func TestSSRFBlocking(t *testing.T) {
 	// Re-init with SSRF check enabled for this test.
 	os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")

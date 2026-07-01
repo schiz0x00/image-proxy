@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -32,9 +33,33 @@ func redactURL(rawURL string) string {
 	return u.String()
 }
 
-// isBlockedHost checks whether the host resolves to a private, loopback,
-// link-local, multicast, or unspecified IP — classic SSRF targets. Also
-// blocks bare hostnames that are clearly local (e.g. "localhost").
+// ssrfControl is called by the dialer with the *resolved* IP, after the socket
+// is created but before connect(2). This is the real SSRF boundary: checking
+// the hostname up front cannot prevent DNS rebinding, because the client
+// resolves the name a second time when it dials. Applies to every hop,
+// including redirects.
+func ssrfControl(network, address string, _ syscall.RawConn) error {
+	if disableSSRFCheck {
+		return nil
+	}
+	h, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return errors.New("blocked: unparseable dial address")
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return errors.New("blocked: dial address is not an IP")
+	}
+	if isPrivateIP(ip) {
+		return errors.New("blocked: target IP is in a private range")
+	}
+	return nil
+}
+
+// isBlockedHost is a pre-flight check so that obviously-local targets get a
+// 403 instead of a 502. It is not the security boundary — ssrfControl is.
+// Blocks bare hostnames that are clearly local (e.g. "localhost") and hosts
+// that already resolve to a private IP.
 func isBlockedHost(host string) (bool, string) {
 	// Strip port if present.
 	h, _, err := net.SplitHostPort(host)
@@ -132,7 +157,10 @@ var originHeaders = map[string]string{
 // streams. Headers are bounded below; the request context handles the rest.
 var originClient = &http.Client{
 	Transport: &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+			Control: ssrfControl,
+		}).DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       60 * time.Second,
