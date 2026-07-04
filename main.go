@@ -101,40 +101,48 @@ func isBlockedHost(host string) (bool, string) {
 }
 
 func isPrivateIP(ip net.IP) bool {
-	// Loopback (127.0.0.0/8, ::1)
-	if ip.IsLoopback() {
+	// Catch-all for everything that is not routable public unicast: loopback,
+	// unspecified, all multicast (224.0.0.0/4, ff00::/8), link-local, the
+	// IPv4 broadcast address, and malformed addresses.
+	if !ip.IsGlobalUnicast() {
 		return true
 	}
-	// Unspecified (0.0.0.0, ::)
-	if ip.IsUnspecified() {
-		return true
-	}
-	// Link-local unicast (169.254.0.0/16, fe80::/10)
-	if ip.IsLinkLocalUnicast() {
-		return true
-	}
-	// Link-local multicast (224.0.0.0/24, ff01::/16, ff02::/16)
-	if ip.IsLinkLocalMulticast() {
-		return true
-	}
-	// Private IPv4 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+
 	if ip4 := ip.To4(); ip4 != nil {
 		switch {
+		case ip4[0] == 0: // 0.0.0.0/8 "this network" — unroutable, aliases localhost
+			return true
 		case ip4[0] == 10:
 			return true
 		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
 			return true
 		case ip4[0] == 192 && ip4[1] == 168:
 			return true
+		case ip4[0] == 192 && ip4[1] == 0 && ip4[2] == 0: // IETF protocol assignments
+			return true
 		case ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127: // CGNAT
 			return true
-		case ip4[0] == 198 && ip4[1] == 18: // 198.18.0.0/15 benchmark testing
+		case ip4[0] == 198 && (ip4[1] == 18 || ip4[1] == 19): // 198.18.0.0/15 benchmark
+			return true
+		case ip4[0] >= 240: // 240.0.0.0/4 reserved
 			return true
 		}
+		return false
 	}
+
 	// IPv6 unique-local (fc00::/7)
-	if len(ip) == net.IPv6len && ip[0]&0xfe == 0xfc {
+	if ip[0]&0xfe == 0xfc {
 		return true
+	}
+	// 6to4 (2002::/16) embeds the IPv4 address in bytes 2-5.
+	if ip[0] == 0x20 && ip[1] == 0x02 {
+		return isPrivateIP(net.IPv4(ip[2], ip[3], ip[4], ip[5]))
+	}
+	// Teredo (2001::/32) carries the server IPv4 in bytes 4-7 and the client
+	// IPv4, bitwise-inverted, in the last four bytes. Either can be internal.
+	if ip[0] == 0x20 && ip[1] == 0x01 && ip[2] == 0x00 && ip[3] == 0x00 {
+		return isPrivateIP(net.IPv4(ip[4], ip[5], ip[6], ip[7])) ||
+			isPrivateIP(net.IPv4(^ip[12], ^ip[13], ^ip[14], ^ip[15]))
 	}
 	return false
 }

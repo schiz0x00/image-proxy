@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -95,6 +96,32 @@ func TestRedirectLimit(t *testing.T) {
 	w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/loop"))
 	if w.Code != 502 {
 		t.Errorf("expected 502 from redirect loop, got %d", w.Code)
+	}
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1", "::1", "0.0.0.0", "::",
+		"10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1",
+		"169.254.169.254", "fe80::1",
+		"100.64.0.1", "198.18.0.1", "198.19.0.1", "192.0.0.1",
+		"224.0.0.1", "239.255.255.250", "ff02::1", // multicast beyond link-local
+		"240.0.0.1", "255.255.255.255", "0.1.2.3", // reserved / broadcast / this-network
+		"fc00::1", "fd12:3456::1", // unique-local
+		"2002:7f00:0001::",               // 6to4 wrapping 127.0.0.1
+		"2001:0:5d58:d802:0:0:f5ff:fffe", // Teredo, public server, 10.0.0.1 client
+		"::ffff:169.254.169.254",         // v4-mapped metadata
+	}
+	for _, s := range blocked {
+		if !isPrivateIP(net.ParseIP(s)) {
+			t.Errorf("%s: expected blocked", s)
+		}
+	}
+	allowed := []string{"93.184.216.34", "1.1.1.1", "172.32.0.1", "192.169.0.1", "2606:4700::1111"}
+	for _, s := range allowed {
+		if isPrivateIP(net.ParseIP(s)) {
+			t.Errorf("%s: expected allowed", s)
+		}
 	}
 }
 
