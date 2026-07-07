@@ -6,15 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("IMAGE_PROXY_DISABLE_SSRF_CHECK", "1")
-	disableSSRFCheck = true // init() ran before the env var was set
-	defer os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")
+	disableSSRFCheck = true // origin servers in these tests are on localhost
 	m.Run()
 }
 
@@ -148,14 +145,8 @@ func TestSSRFControl(t *testing.T) {
 }
 
 func TestSSRFBlocking(t *testing.T) {
-	// Re-init with SSRF check enabled for this test.
-	os.Unsetenv("IMAGE_PROXY_DISABLE_SSRF_CHECK")
 	disableSSRFCheck = false
-
-	t.Cleanup(func() {
-		os.Setenv("IMAGE_PROXY_DISABLE_SSRF_CHECK", "1")
-		disableSSRFCheck = true
-	})
+	t.Cleanup(func() { disableSSRFCheck = true })
 
 	tests := []struct {
 		label string

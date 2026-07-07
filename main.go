@@ -147,13 +147,10 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// disableSSRFCheck disables the private-IP block for tests that need
-// localhost origin servers. Never set in production.
+// disableSSRFCheck lets tests reach localhost origin servers. It is set only
+// from test code — deliberately not readable from the environment or a flag,
+// so no production configuration can switch the SSRF check off.
 var disableSSRFCheck bool
-
-func init() {
-	disableSSRFCheck = os.Getenv("IMAGE_PROXY_DISABLE_SSRF_CHECK") == "1"
-}
 
 var originHeaders = map[string]string{
 	"User-Agent": "Mozilla/5.0",
