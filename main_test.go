@@ -96,6 +96,19 @@ func TestRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestOversizedContentLengthRejected(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", "999999999") // ~1 GB, past the 50 MB cap
+		w.WriteHeader(200)
+	}))
+	defer origin.Close()
+
+	if w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/big.png")); w.Code != 502 {
+		t.Errorf("expected 502 for oversized Content-Length, got %d", w.Code)
+	}
+}
+
 func TestIsPrivateIP(t *testing.T) {
 	blocked := []string{
 		"127.0.0.1", "::1", "0.0.0.0", "::",

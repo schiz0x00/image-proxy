@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -361,8 +362,19 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		contentType = defaultContentType
 	}
 	w.Header().Set("Content-Type", contentType)
-	if cl := resp.Header.Get("Content-Length"); cl != "" {
-		w.Header().Set("Content-Length", cl)
+
+	// Only forward Content-Length when it agrees with what we are willing to
+	// stream. Forwarding a larger value promised the client bytes that
+	// io.LimitReader would never deliver, leaving a truncated response with a
+	// mismatched length. Anything unparseable is dropped so Go frames the
+	// response itself.
+	if cl, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64); err == nil && cl >= 0 {
+		if cl > maxResponseBytes {
+			log.Printf("Origin response too large: %d bytes > %d", cl, maxResponseBytes)
+			http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.FormatInt(cl, 10))
 	}
 	w.WriteHeader(resp.StatusCode)
 
