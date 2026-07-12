@@ -167,6 +167,9 @@ func TestSSRFBlocking(t *testing.T) {
 	}{
 		{"loopback IPv4", "http://127.0.0.1:9999/img.png"},
 		{"loopback IPv6", "http://[::1]:9999/img.png"},
+		{"loopback IPv6 no port", "http://[::1]/img.png"},
+		{"unique-local IPv6 no port", "http://[fd00::1]/img.png"},
+		{"v4-mapped metadata", "http://[::ffff:169.254.169.254]/img.png"},
 		{"private 10.x", "http://10.0.0.1/img.png"},
 		{"private 172.16", "http://172.16.0.1/img.png"},
 		{"private 192.168", "http://192.168.1.1/img.png"},

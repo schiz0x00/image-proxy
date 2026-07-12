@@ -62,10 +62,13 @@ func ssrfControl(network, address string, _ syscall.RawConn) error {
 // Blocks bare hostnames that are clearly local (e.g. "localhost") and hosts
 // that already resolve to a private IP.
 func isBlockedHost(host string) (bool, string) {
-	// Strip port if present.
+	// Strip port if present. With no port, an IPv6 literal still carries the
+	// brackets from the URL, and net.ParseIP rejects those — without trimming
+	// them, "[::1]" fell through to a DNS lookup and was blocked only as a
+	// side effect of that lookup failing.
 	h, _, err := net.SplitHostPort(host)
 	if err != nil {
-		h = host // no port, use as-is
+		h = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	}
 
 	// Block obviously local bare hostnames.
