@@ -252,14 +252,46 @@ func (rl *rateLimiter) Allow(ip string) bool {
 	return false
 }
 
+// trustedProxyHops is the number of reverse proxies in front of this server.
+// Zero (the default) means none, and X-Forwarded-For is ignored entirely: a
+// client can set that header freely, so trusting it without a known hop count
+// would let anyone pick their own rate-limit bucket.
+var trustedProxyHops = func() int {
+	n, _ := strconv.Atoi(os.Getenv("TRUSTED_PROXY_HOPS"))
+	if n < 0 {
+		n = 0
+	}
+	return n
+}()
+
+// clientIP returns the address to key rate limiting on. Behind a proxy,
+// RemoteAddr is the proxy for every request, which would collapse all traffic
+// into one bucket.
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if trustedProxyHops == 0 {
+		return ip
+	}
+	// Each proxy appends the address it saw, so the rightmost entries are the
+	// trustworthy ones. Counting that many in from the right lands on the
+	// furthest hop we can still believe; anything the client forged sits to
+	// the left of it and is ignored.
+	xff := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	if i := len(xff) - trustedProxyHops; i >= 0 && i < len(xff) {
+		if v := strings.TrimSpace(xff[i]); v != "" {
+			return v
+		}
+	}
+	return ip
+}
+
 // rateLimitMiddleware wraps a handler with per-IP rate limiting.
 func rateLimitMiddleware(next http.Handler, rl *rateLimiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			ip = r.RemoteAddr
-		}
-		if !rl.Allow(ip) {
+		if !rl.Allow(clientIP(r)) {
 			writeCORS(w)
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return

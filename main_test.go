@@ -96,6 +96,36 @@ func TestRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestClientIP(t *testing.T) {
+	req := func(xff string) *http.Request {
+		r := httptest.NewRequest("GET", "/image", nil)
+		r.RemoteAddr = "203.0.113.9:1234"
+		if xff != "" {
+			r.Header.Set("X-Forwarded-For", xff)
+		}
+		return r
+	}
+
+	// No trusted proxies: the header is untrusted and must be ignored.
+	if got := clientIP(req("1.2.3.4")); got != "203.0.113.9" {
+		t.Errorf("hops=0: got %q, want RemoteAddr", got)
+	}
+
+	trustedProxyHops = 1
+	t.Cleanup(func() { trustedProxyHops = 0 })
+
+	if got := clientIP(req("198.51.100.7")); got != "198.51.100.7" {
+		t.Errorf("hops=1: got %q", got)
+	}
+	// A client prepending a forged entry must not shift the choice.
+	if got := clientIP(req("1.2.3.4, 198.51.100.7")); got != "198.51.100.7" {
+		t.Errorf("hops=1 spoofed: got %q, want the proxy-appended entry", got)
+	}
+	if got := clientIP(req("")); got != "203.0.113.9" {
+		t.Errorf("hops=1 no header: got %q, want RemoteAddr", got)
+	}
+}
+
 func TestOversizedContentLengthRejected(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
