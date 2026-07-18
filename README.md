@@ -25,6 +25,7 @@ docker run -p 8080:8080 image-proxy
 
 ## Security
 
+- **Origin allowlist**: `ALLOWED_HOSTS` takes a comma-separated list of hostnames; subdomains of each entry are included, and redirect targets are checked too. Unset, any public host may be fetched — which makes the deployment an open relay for traffic laundering, so set it in production.
 - **SSRF protection**: Private, loopback, link-local, CGNAT, and benchmark IP ranges are blocked. Hostnames resolving to those ranges are also blocked. Bare local hostnames (`localhost`, `*.local`, `*.internal`) are denied.
 - **Redirect validation**: Follows at most 5 redirects; rejects redirects to private IPs or non-http(s) schemes.
 - **Rate limiting**: 20 requests/second per client IP (burst 40). Returns 429 when exceeded. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` to the number of proxies in front of the server so buckets are keyed on the real client instead of collapsing into one. `X-Forwarded-For` is ignored unless that count is set, since clients can forge it.

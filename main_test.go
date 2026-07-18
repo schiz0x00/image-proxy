@@ -96,6 +96,31 @@ func TestRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestHostAllowlist(t *testing.T) {
+	// Empty allowlist allows everything, so the proxy keeps working unconfigured.
+	if !hostAllowed("evil.example") {
+		t.Error("empty allowlist should allow any host")
+	}
+
+	allowedHosts = []string{"sephora.com", "cdn.example.net"}
+	t.Cleanup(func() { allowedHosts = nil })
+
+	for _, h := range []string{"sephora.com", "www.sephora.com", "SEPHORA.COM", "cdn.example.net:8443"} {
+		if !hostAllowed(h) {
+			t.Errorf("%s: expected allowed", h)
+		}
+	}
+	for _, h := range []string{"evil.example", "sephora.com.evil.example", "notsephora.com", "example.net"} {
+		if hostAllowed(h) {
+			t.Errorf("%s: expected blocked", h)
+		}
+	}
+
+	if w := doReq(t, "/image?url="+url.QueryEscape("http://evil.example/x.png")); w.Code != 403 {
+		t.Errorf("expected 403 for disallowed host, got %d", w.Code)
+	}
+}
+
 func TestClientIP(t *testing.T) {
 	req := func(xff string) *http.Request {
 		r := httptest.NewRequest("GET", "/image", nil)

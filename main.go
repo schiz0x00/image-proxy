@@ -34,6 +34,43 @@ func redactURL(rawURL string) string {
 	return u.String()
 }
 
+// hostOnly strips the port and any IPv6 brackets from a URL host. With no
+// port, an IPv6 literal still carries the brackets and net.ParseIP rejects
+// those.
+func hostOnly(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+}
+
+// allowedHosts limits which origins may be fetched, as exact hostnames or
+// parent domains. Empty — the default — allows any public host, which leaves
+// the proxy an open relay: anyone can route traffic through this address, on
+// this bandwidth bill, with the abuse reports arriving here. Set ALLOWED_HOSTS
+// in production.
+var allowedHosts = func() (hosts []string) {
+	for _, h := range strings.Split(os.Getenv("ALLOWED_HOSTS"), ",") {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}()
+
+func hostAllowed(host string) bool {
+	if len(allowedHosts) == 0 {
+		return true
+	}
+	h := strings.ToLower(hostOnly(host))
+	for _, a := range allowedHosts {
+		if h == a || strings.HasSuffix(h, "."+a) {
+			return true
+		}
+	}
+	return false
+}
+
 // ssrfControl is called by the dialer with the *resolved* IP, after the socket
 // is created but before connect(2). This is the real SSRF boundary: checking
 // the hostname up front cannot prevent DNS rebinding, because the client
@@ -62,14 +99,7 @@ func ssrfControl(network, address string, _ syscall.RawConn) error {
 // Blocks bare hostnames that are clearly local (e.g. "localhost") and hosts
 // that already resolve to a private IP.
 func isBlockedHost(host string) (bool, string) {
-	// Strip port if present. With no port, an IPv6 literal still carries the
-	// brackets from the URL, and net.ParseIP rejects those — without trimming
-	// them, "[::1]" fell through to a DNS lookup and was blocked only as a
-	// side effect of that lookup failing.
-	h, _, err := net.SplitHostPort(host)
-	if err != nil {
-		h = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	}
+	h := hostOnly(host)
 
 	// Block obviously local bare hostnames.
 	lower := strings.ToLower(h)
@@ -179,9 +209,13 @@ var originClient = &http.Client{
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
 		}
-		// Validate the redirect target — same SSRF rules apply.
+		// Validate the redirect target — same rules as the original request,
+		// or a redirect would walk straight out of the allowlist.
 		if blocked, _ := isBlockedHost(req.URL.Host); blocked {
 			return errors.New("redirect target blocked by SSRF policy")
+		}
+		if !hostAllowed(req.URL.Host) {
+			return errors.New("redirect target not in ALLOWED_HOSTS")
 		}
 		// Only follow http/https redirects.
 		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
@@ -353,6 +387,12 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	u, err := url.ParseRequestURI(imageURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		http.Error(w, "Invalid 'url' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	if !hostAllowed(u.Host) {
+		log.Printf("Blocked host not in ALLOWED_HOSTS: url=%s", redactURL(imageURL))
+		http.Error(w, "Blocked: target host is not allowed", http.StatusForbidden)
 		return
 	}
 
