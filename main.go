@@ -21,7 +21,19 @@ const (
 	// ponytail: 50MB cap, raise if legitimate images ever exceed it
 	maxResponseBytes = 50 << 20
 	maxURLLength     = 8 * 1024 // 8 KB max URL query param value
+
+	// maxInFlight bounds concurrent origin fetches. Per-IP rate limiting does
+	// not bound the total: every new source address gets its own bucket, so a
+	// distributed caller could otherwise open unlimited upstream connections.
+	maxInFlight = 256
+
+	// maxTrackedClients bounds the rate-limiter table. Entries expire after two
+	// minutes, so without a cap a flood of unique source addresses inside that
+	// window grows the map without limit.
+	maxTrackedClients = 100_000
 )
+
+var inFlight = make(chan struct{}, maxInFlight)
 
 // redactURL strips query parameters from a URL for safe logging, keeping
 // the scheme, host, and path visible.
@@ -203,6 +215,9 @@ var originClient = &http.Client{
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       60 * time.Second,
+		MaxConnsPerHost:       64,
+		MaxIdleConns:          128,
+		MaxIdleConnsPerHost:   16,
 	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		// Limit to 5 redirects (Go default is 10).
@@ -267,6 +282,10 @@ func (rl *rateLimiter) Allow(ip string) bool {
 
 	b, ok := rl.clients[ip]
 	if !ok {
+		// Table full: refuse unknown clients rather than grow without bound.
+		if len(rl.clients) >= maxTrackedClients {
+			return false
+		}
 		b = &clientBucket{tokens: float64(rl.burst), last: now}
 		rl.clients[ip] = b
 	}
@@ -402,6 +421,17 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Blocked: target host is not allowed", http.StatusForbidden)
 			return
 		}
+	}
+
+	// Bound concurrent upstream fetches. Applied here rather than as
+	// middleware so /health keeps answering while the proxy is saturated.
+	select {
+	case inFlight <- struct{}{}:
+		defer func() { <-inFlight }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Server too busy", http.StatusServiceUnavailable)
+		return
 	}
 
 	originReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, imageURL, nil)

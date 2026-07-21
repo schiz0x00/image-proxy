@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -93,6 +95,36 @@ func TestRedirectLimit(t *testing.T) {
 	w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/loop"))
 	if w.Code != 502 {
 		t.Errorf("expected 502 from redirect loop, got %d", w.Code)
+	}
+}
+
+func TestInFlightLimit(t *testing.T) {
+	// Saturate the semaphore, then confirm the next request sheds load.
+	for i := 0; i < maxInFlight; i++ {
+		inFlight <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for i := 0; i < maxInFlight; i++ {
+			<-inFlight
+		}
+	})
+
+	w := doReq(t, "/image?url="+url.QueryEscape("http://example.com/x.png"))
+	if w.Code != 503 {
+		t.Errorf("expected 503 when saturated, got %d", w.Code)
+	}
+}
+
+func TestRateLimiterTableCap(t *testing.T) {
+	rl := newRateLimiter(20, 40)
+	for i := 0; i < maxTrackedClients; i++ {
+		rl.clients[strconv.Itoa(i)] = &clientBucket{tokens: 1, last: time.Now()}
+	}
+	if rl.Allow("new-client") {
+		t.Error("expected a full table to refuse an unknown client")
+	}
+	if !rl.Allow("42") { // already tracked, still served
+		t.Error("expected a tracked client to still be allowed")
 	}
 }
 
