@@ -33,5 +33,5 @@ docker run -p 8080:8080 image-proxy
 - **Load shedding**: at most 256 concurrent origin fetches (503 with `Retry-After` beyond that), 64 connections per origin host, and a 100,000-entry ceiling on the rate-limiter table. `/health` stays outside the concurrency limit.
 - **Error sanitization**: Internal error details are logged server-side only; generic status text is returned to clients.
 - **Log redaction**: Query parameters are stripped from URLs before logging.
-- **Security headers**: `X-Content-Type-Options: nosniff` set on all responses.
+- **Security headers**: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, and `Referrer-Policy: no-referrer` on every response, including `/health` and errors. The CSP matters for `image/svg+xml`, which passes the content-type check but can run script when opened directly.
 - **Server hardening**: Write timeout (60s), header read timeout (5s), max header size (16 KB).

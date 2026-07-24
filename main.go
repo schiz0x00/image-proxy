@@ -378,6 +378,8 @@ func main() {
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
+	writeSecurityHeaders(w)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte("OK"))
 }
 
@@ -497,4 +499,10 @@ func writeCORS(w http.ResponseWriter) {
 
 func writeSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// image/svg+xml satisfies the image/ prefix check, and an SVG opened
+	// directly in a browser can run script — served from our origin, on our
+	// domain. The sandbox and empty default-src stop that; neither affects the
+	// image when it is embedded with <img>.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }

@@ -98,6 +98,36 @@ func TestRedirectLimit(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	want := map[string]string{
+		"X-Content-Type-Options":  "nosniff",
+		"Content-Security-Policy": "default-src 'none'; sandbox",
+		"Referrer-Policy":         "no-referrer",
+	}
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
+	}))
+	defer origin.Close()
+
+	recs := map[string]*httptest.ResponseRecorder{
+		"svg passthrough": doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/x.svg")),
+		"error response":  doReq(t, "/image"),
+	}
+	health := httptest.NewRecorder()
+	healthHandler(health, httptest.NewRequest("GET", "/health", nil))
+	recs["health"] = health
+
+	for label, w := range recs {
+		for h, v := range want {
+			if got := w.Header().Get(h); got != v {
+				t.Errorf("%s: %s = %q, want %q", label, h, got, v)
+			}
+		}
+	}
+}
+
 func TestInFlightLimit(t *testing.T) {
 	// Saturate the semaphore, then confirm the next request sheds load.
 	for i := 0; i < maxInFlight; i++ {
