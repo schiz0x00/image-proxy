@@ -7,10 +7,9 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,10 +18,31 @@ jobs:
         with:
           go-version: stable
 
+      - run: go vet ./...
+
       - run: go test ./...
 
+      # Keeps the Dockerfile validated on pull requests, which no longer reach
+      # the publish job. No registry credentials needed.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+
+  publish:
+    # Only pushes to main publish, so pull request runs never receive a token
+    # with packages: write — a branch PR can change this workflow and its code
+    # runs with whatever permissions the run was granted.
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: docker/login-action@v3
-        if: github.event_name == 'push'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -39,6 +59,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'push' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
