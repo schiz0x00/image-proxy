@@ -2,7 +2,6 @@ name: build
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -33,7 +32,7 @@ jobs:
     # Only pushes to main publish, so pull request runs never receive a token
     # with packages: write — a branch PR can change this workflow and its code
     # runs with whatever permissions the run was granted.
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     permissions:
