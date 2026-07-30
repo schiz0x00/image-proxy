@@ -24,7 +24,7 @@ jobs:
 
       # Keeps the Dockerfile validated on pull requests, which no longer reach
       # the publish job. No registry credentials needed.
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -56,7 +56,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
