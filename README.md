@@ -2,7 +2,6 @@
 
 [![Go version](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
 [![Build](https://github.com/schiz0x00/image-proxy/actions/workflows/build.yml/badge.svg)](https://github.com/schiz0x00/image-proxy/actions/workflows/build.yml)
-[![CodeQL](https://github.com/schiz0x00/image-proxy/actions/workflows/codeql.yml/badge.svg)](https://github.com/schiz0x00/image-proxy/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/github/license/schiz0x00/image-proxy)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/schiz0x00/image-proxy)](https://github.com/schiz0x00/image-proxy/releases)
 
@@ -23,7 +22,7 @@ docker run -p 8080:8080 image-proxy
 
 ## Releases
 
-Pushing a `v*` tag builds static binaries for linux and darwin on amd64 and arm64, and attaches them plus `checksums.txt` to a GitHub release.
+Pushing a `v*` or `V*` tag builds static binaries for linux and darwin on amd64 and arm64, and attaches them plus `checksums.txt` to a GitHub release.
 
 ## Behavior
 
@@ -52,6 +51,18 @@ Pushing a `v*` tag builds static binaries for linux and darwin on amd64 and arm6
 |---|---|---|
 | `ALLOWED_HOSTS` | unset (any public host) | Comma-separated hostname allowlist; subdomains are included |
 | `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front; enables `X-Forwarded-For` parsing |
+
+## Development
+
+```sh
+make test      # go test -race
+make lint      # golangci-lint (config in .golangci.yml)
+make vet fmt   # go vet / go fmt
+make coverage  # writes coverage.html
+make build     # local binary
+```
+
+`make lint` needs [golangci-lint](https://golangci-lint.run) v2; the config uses the v2 schema and will not load under v1.
 
 ## Contributing
 

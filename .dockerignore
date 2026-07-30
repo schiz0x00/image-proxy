@@ -1,0 +1,4 @@
+# The build context only needs the module file and the Go sources.
+*
+!go.mod
+!*.go

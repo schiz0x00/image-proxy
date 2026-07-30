@@ -105,7 +105,7 @@ func TestSecurityHeaders(t *testing.T) {
 		"Referrer-Policy":         "no-referrer",
 	}
 
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
 	}))
@@ -214,7 +214,7 @@ func TestClientIP(t *testing.T) {
 }
 
 func TestOversizedContentLengthRejected(t *testing.T) {
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Content-Length", "999999999") // ~1 GB, past the 50 MB cap
 		w.WriteHeader(200)
@@ -223,6 +223,21 @@ func TestOversizedContentLengthRejected(t *testing.T) {
 
 	if w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/big.png")); w.Code != 502 {
 		t.Errorf("expected 502 for oversized Content-Length, got %d", w.Code)
+	}
+}
+
+func TestRedactURL(t *testing.T) {
+	// Query strings hold tokens and must never reach the log.
+	if got := redactURL("https://cdn.example/a.png?sig=secret"); got != "https://cdn.example/a.png?redacted" {
+		t.Errorf("query not redacted: %q", got)
+	}
+	// A newline would let a caller forge log lines.
+	if got := redactURL("https://cdn.example/a.png\n2026-01-01 forged entry"); strings.ContainsAny(got, "\r\n") {
+		t.Errorf("control characters survived: %q", got)
+	}
+	// Unparseable input still gets scrubbed rather than returned as-is.
+	if got := redactURL("::not a url::\x00\n"); strings.ContainsAny(got, "\r\n\x00") {
+		t.Errorf("control characters survived the error branch: %q", got)
 	}
 }
 

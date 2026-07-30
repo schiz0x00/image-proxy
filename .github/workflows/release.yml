@@ -2,7 +2,8 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    # Both cases: the existing V1.0 tag would not have matched a 'v*' glob.
+    tags: ['v*', 'V*']
 
 permissions:
   contents: read
@@ -21,7 +22,7 @@ jobs:
 
       - run: go vet ./...
 
-      - run: go test ./...
+      - run: go test -race -count=1 ./...
 
       - name: Build
         run: |
@@ -36,6 +37,7 @@ jobs:
           done
           cd dist && sha256sum ./*.tar.gz > checksums.txt
 
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+      # --verify-tag refuses to invent a tag if the ref is somehow absent.
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}

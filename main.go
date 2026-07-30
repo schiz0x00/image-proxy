@@ -1,3 +1,8 @@
+// Command image-proxy is a stateless streaming image proxy. It fetches an
+// image from an upstream URL and streams it back to the caller without
+// caching, storing, or transforming it. Fetching attacker-supplied URLs is the
+// point of the service, so the SSRF, size, and rate controls in this file are
+// the security boundary rather than incidental hardening.
 package main
 
 import (
@@ -35,12 +40,23 @@ const (
 
 var inFlight = make(chan struct{}, maxInFlight)
 
-// redactURL strips query parameters from a URL for safe logging, keeping
-// the scheme, host, and path visible.
+// redactURL strips query parameters from a URL for safe logging, keeping the
+// scheme, host, and path visible. Control characters are removed from whatever
+// it returns: the input is caller-supplied, and a bare newline in it would let
+// the caller forge log lines. url.ParseRequestURI already rejects such input on
+// the request path, so this is defence in depth for the error branch below,
+// which returns the string unparsed.
 func redactURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, rawURL)
+
+	u, err := url.Parse(clean)
 	if err != nil || u.Query().Encode() == "" {
-		return rawURL
+		return clean
 	}
 	u.RawQuery = "redacted"
 	return u.String()
@@ -88,7 +104,7 @@ func hostAllowed(host string) bool {
 // the hostname up front cannot prevent DNS rebinding, because the client
 // resolves the name a second time when it dials. Applies to every hop,
 // including redirects.
-func ssrfControl(network, address string, _ syscall.RawConn) error {
+func ssrfControl(_, address string, _ syscall.RawConn) error {
 	if disableSSRFCheck {
 		return nil
 	}
@@ -377,13 +393,13 @@ func main() {
 	}
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	writeSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 }
 
-func optionsHandler(w http.ResponseWriter, r *http.Request) {
+func optionsHandler(w http.ResponseWriter, _ *http.Request) {
 	writeCORS(w)
 	writeSecurityHeaders(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -400,6 +416,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(imageURL) > maxURLLength {
+		// #nosec G706 -- only the length is logged, never the URL itself.
 		log.Printf("URL too long: %d bytes", len(imageURL))
 		http.Error(w, "URL too long", http.StatusBadRequest)
 		return
@@ -412,6 +429,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !hostAllowed(u.Host) {
+		// #nosec G706 -- redactURL strips control characters and the query string.
 		log.Printf("Blocked host not in ALLOWED_HOSTS: url=%s", redactURL(imageURL))
 		http.Error(w, "Blocked: target host is not allowed", http.StatusForbidden)
 		return
@@ -419,6 +437,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !disableSSRFCheck {
 		if blocked, reason := isBlockedHost(u.Host); blocked {
+			// #nosec G706 -- redactURL strips control characters and the query string.
 			log.Printf("Blocked SSRF attempt: url=%s reason=%s", redactURL(imageURL), reason)
 			http.Error(w, "Blocked: target host is not allowed", http.StatusForbidden)
 			return
@@ -436,6 +455,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #nosec G704 -- fetching a caller-supplied URL is what this service does.
+	// The target has already passed hostAllowed and isBlockedHost, and the
+	// dialer re-checks the resolved IP in ssrfControl on every hop.
 	originReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, imageURL, nil)
 	if err != nil {
 		log.Printf("Failed to create origin request: %v", err)
@@ -446,6 +468,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		originReq.Header.Set(k, v)
 	}
 
+	// #nosec G704 -- see above; originClient pins the SSRF check to the dial.
 	resp, err := originClient.Do(originReq)
 	if err != nil {
 		status := http.StatusBadGateway
@@ -489,6 +512,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error streaming response body: %v", err)
 	}
+	// #nosec G706 -- redactURL strips control characters and the query string.
 	log.Printf("%s status=%d bytes=%d duration=%s", redactURL(imageURL), resp.StatusCode, written, time.Since(start))
 }
 

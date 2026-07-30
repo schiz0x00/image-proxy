@@ -1,14 +1,12 @@
+version: "2"
+
 run:
   timeout: 3m
 
 linters:
+  # errcheck, govet, ineffassign, staticcheck and unused are enabled by
+  # default. gosimple was folded into staticcheck, and tenv into usetesting.
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
     - asciicheck
     - bodyclose
     - errorlint
@@ -17,13 +15,23 @@ linters:
     - noctx
     - prealloc
     - revive
-    - tenv
     - unconvert
+    - usetesting
     - wastedassign
+  settings:
+    errcheck:
+      # Closing a response body cannot fail in a way the handler can act on.
+      exclude-functions:
+        - (io.ReadCloser).Close
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          # Test requests are synthetic and never escape the process.
+          - noctx
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
+formatters:
+  enable:
+    - gofmt
