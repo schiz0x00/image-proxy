@@ -1,1 +1,30 @@
-image-proxy
+# ── Build artifacts ──────────────────────────────────────────────────
+/image-proxy
+dist/
+
+# ── IDE / editors ───────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Go ──────────────────────────────────────────────────────────────
+vendor/
+*.test
+*.out
+*.prof
+/coverage.txt
+/coverage.html
+/cpu.pprof
+/mem.pprof
+
+# ── OS ──────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Environment ─────────────────────────────────────────────────────
+.env
+.env.local
