@@ -15,6 +15,10 @@ docker build -t image-proxy .  # or in Docker
 docker run -p 8080:8080 image-proxy
 ```
 
+## Releases
+
+Pushing a `v*` tag builds static binaries for linux and darwin on amd64 and arm64, and attaches them plus `checksums.txt` to a GitHub release.
+
 ## Behavior
 
 - Streams the origin response directly; never buffers the full image.
