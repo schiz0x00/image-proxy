@@ -1,0 +1,6 @@
+# Default owners for the entire repository
+* @schiz0x00
+
+# Security-critical files require explicit review
+main.go           @schiz0x00
+.github/workflows @schiz0x00
