@@ -2,6 +2,7 @@ name: build
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -19,7 +20,7 @@ jobs:
 
       - run: go vet ./...
 
-      - run: go test ./...
+      - run: go test -race -count=1 ./...
 
       # Keeps the Dockerfile validated on pull requests, which no longer reach
       # the publish job. No registry credentials needed.
@@ -28,12 +29,25 @@ jobs:
           context: .
           push: false
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+
   publish:
     # Only pushes to main publish, so pull request runs never receive a token
     # with packages: write — a branch PR can change this workflow and its code
     # runs with whatever permissions the run was granted.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, lint]
     runs-on: ubuntu-latest
     permissions:
       contents: read
