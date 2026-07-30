@@ -1,5 +1,11 @@
 # image-proxy
 
+[![Go version](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
+[![Build](https://github.com/schiz0x00/image-proxy/actions/workflows/build.yml/badge.svg)](https://github.com/schiz0x00/image-proxy/actions/workflows/build.yml)
+[![CodeQL](https://github.com/schiz0x00/image-proxy/actions/workflows/codeql.yml/badge.svg)](https://github.com/schiz0x00/image-proxy/actions/workflows/codeql.yml)
+[![License](https://img.shields.io/github/license/schiz0x00/image-proxy)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/schiz0x00/image-proxy)](https://github.com/schiz0x00/image-proxy/releases)
+
 Stateless streaming image proxy. Fetches an image URL and streams it back — no cache, no storage, no processing.
 
 ## Endpoints
@@ -39,3 +45,18 @@ Pushing a `v*` tag builds static binaries for linux and darwin on amd64 and arm6
 - **Log redaction**: Query parameters are stripped from URLs before logging.
 - **Security headers**: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, and `Referrer-Policy: no-referrer` on every response, including `/health` and errors. The CSP matters for `image/svg+xml`, which passes the content-type check but can run script when opened directly.
 - **Server hardening**: Write timeout (60s), header read timeout (5s), max header size (16 KB).
+
+## Configuration
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `ALLOWED_HOSTS` | unset (any public host) | Comma-separated hostname allowlist; subdomains are included |
+| `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front; enables `X-Forwarded-For` parsing |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and feature requests welcome via [issues](https://github.com/schiz0x00/image-proxy/issues).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
