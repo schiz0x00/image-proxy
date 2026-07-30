@@ -1,0 +1,29 @@
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - asciicheck
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - prealloc
+    - revive
+    - tenv
+    - unconvert
+    - wastedassign
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
