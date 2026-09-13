@@ -40,7 +40,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
 
   publish:
     # Only pushes to main publish, so pull request runs never receive a token

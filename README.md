@@ -31,6 +31,11 @@ Pushing a `v*` or `V*` tag builds static binaries for linux and darwin on amd64 
 - Only `http`/`https` URLs accepted.
 - Origin status code is passed through; origin timeout → 504, other origin failures → 502.
 - CORS: `Access-Control-Allow-Origin: *` on all responses.
+- Origin requests carry a full Chrome-on-Windows user agent by default (bare `Mozilla/5.0` strings are blocked with 403 by several CDNs); override via `ORIGIN_USER_AGENT`.
+- Two origin-specific URL normalizations are on by default, each narrowly scoped to the host it repairs:
+  - `www.vertbaudet.fr/fstrz/r/s/media.vertbaudet.fr/...` is rewritten to `media.vertbaudet.fr/...` (the Frisbii proxy in front of the former answers 403; the direct CDN streams fine).
+  - `firebasestorage.googleapis.com` object URLs without `alt=media` get it appended (the storage API refuses them otherwise).
+  Disable either with `REWRITE_VERTBAUDET_FSTRZ=false` / `ENSURE_FIREBASE_ALT_MEDIA=false`. Rewrites are applied before allowlist and SSRF checks, which then validate the final target.
 
 ## Security
 
@@ -51,6 +56,13 @@ Pushing a `v*` or `V*` tag builds static binaries for linux and darwin on amd64 
 |---|---|---|
 | `ALLOWED_HOSTS` | unset (any public host) | Comma-separated hostname allowlist; subdomains are included |
 | `TRUSTED_PROXY_HOPS` | `0` | Number of reverse proxies in front; enables `X-Forwarded-For` parsing |
+| `ORIGIN_USER_AGENT` | full Chrome on Windows 11 UA | User-Agent sent to origins; some CDNs 403 a bare `Mozilla/5.0` |
+| `ORIGIN_ACCEPT` | `image/*,*/*;q=0.8` | Accept header sent to origins |
+| `ORIGIN_REFERER` | `https://www.sephora.com/` | Referer header sent to origins |
+| `REWRITE_VERTBAUDET_FSTRZ` | `true` | Rewrite `www.vertbaudet.fr/fstrz/r/s/media.vertbaudet.fr/...` → `media.vertbaudet.fr/...` |
+| `ENSURE_FIREBASE_ALT_MEDIA` | `true` | Append `alt=media` to `firebasestorage.googleapis.com` object URLs missing it |
+
+Some origins (e.g. `www.primark.com`, `www.converse.com` images, `owp.klarna.com`, `www.ilacabak.com`) answer 403 from datacenter IPs regardless of headers; those need an IP-allowlisted or residential egress rather than a header change.
 
 ## Development
 
