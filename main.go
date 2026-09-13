@@ -214,10 +214,73 @@ func isPrivateIP(ip net.IP) bool {
 // so no production configuration can switch the SSRF check off.
 var disableSSRFCheck bool
 
+const chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.8010.37 Safari/537.36"
+
+// envDefault returns the variable's value, or fallback when it is unset or
+// empty. Empty is treated as unset so an operator cannot accidentally send an
+// empty header that some origins reject.
+func envDefault(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envBool parses a 0/1/true/false-style toggle. Unset or unparseable values
+// fall back to def so a typo does not silently disable a workaround.
+func envBool(name string, def bool) bool {
+	if v := os.Getenv(name); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
+}
+
+// Headers sent with every origin request, configurable per deployment. Origins
+// routinely answer 403 to a bare "Mozilla/5.0" user agent, so the default is a
+// complete Chrome on Windows 11 UA rather than a fingerprintable stub.
 var originHeaders = map[string]string{
-	"User-Agent": "Mozilla/5.0",
-	"Accept":     "image/*,*/*;q=0.8",
-	"Referer":    "https://www.sephora.com/",
+	"User-Agent": envDefault("ORIGIN_USER_AGENT", chromeUA),
+	"Accept":     envDefault("ORIGIN_ACCEPT", "image/*,*/*;q=0.8"),
+	"Referer":    envDefault("ORIGIN_REFERER", "https://www.sephora.com/"),
+}
+
+// Origin-specific URL rewrites. Each is scoped tightly to the exact host/path
+// it repairs and defaults to on so availability fixes ship with the service;
+// set the matching variable to "false" to disable it.
+var (
+	// www.vertbaudet.fr/fstrz/r/s/media.vertbaudet.fr/... is served through an
+	// optimization reverse proxy that answers 403 to non-browser traffic, while
+	// the same image on media.vertbaudet.fr streams normally.
+	rewriteVertbaudetFstrz = envBool("REWRITE_VERTBAUDET_FSTRZ", true)
+	// firebasestorage.googleapis.com refuses object URLs without an alt=media
+	// query parameter (403); adding it makes them streamable.
+	ensureFirebaseAltMedia = envBool("ENSURE_FIREBASE_ALT_MEDIA", true)
+)
+
+// normalizeOriginURL applies the rewrites above to the parsed target so every
+// check that follows — allowlist, SSRF, redirect policy — and the request
+// itself all use the URL that is actually fetched.
+func normalizeOriginURL(u *url.URL) {
+	if u == nil {
+		return
+	}
+	if rewriteVertbaudetFstrz && strings.EqualFold(u.Host, "www.vertbaudet.fr") {
+		const prefix = "/fstrz/r/s/media.vertbaudet.fr"
+		if strings.HasPrefix(u.Path, prefix) {
+			u.Scheme = "https"
+			u.Host = "media.vertbaudet.fr"
+			u.Path = strings.TrimPrefix(u.Path, prefix)
+		}
+	}
+	if ensureFirebaseAltMedia && strings.EqualFold(u.Host, "firebasestorage.googleapis.com") {
+		q := u.Query()
+		if q.Get("alt") == "" {
+			q.Set("alt", "media")
+			u.RawQuery = q.Encode()
+		}
+	}
 }
 
 // No Client.Timeout: it would cap the total body transfer and truncate slow
@@ -427,6 +490,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid 'url' query parameter", http.StatusBadRequest)
 		return
 	}
+
+	// Apply origin-specific rewrites before validation so the allowlist and
+	// SSRF checks, and the request itself, all use the target we will fetch.
+	normalizeOriginURL(u)
+	imageURL = u.String()
 
 	if !hostAllowed(u.Host) {
 		// #nosec G706 -- redactURL strips control characters and the query string.

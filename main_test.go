@@ -57,6 +57,95 @@ func TestProxyStreamsAndSetsHeaders(t *testing.T) {
 	}
 }
 
+// A full Chrome-on-Windows UA is what sweetcare, revolutionparts, and similar
+// CDNs require; a bare "Mozilla/5.0" was the cause of their 403s.
+func TestOriginUserAgentIsFullBrowserUA(t *testing.T) {
+	got := ""
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.UserAgent()
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(200)
+	}))
+	defer origin.Close()
+
+	w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/a.png"))
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(got, "Chrome/") || !strings.Contains(got, "Windows NT 10.0; Win64; x64") {
+		t.Errorf("user agent %q is not a full Chrome/Windows UA", got)
+	}
+	if got == "Mozilla/5.0" {
+		t.Error("bare UA sent — the sweetcare 403 regression")
+	}
+}
+
+func TestOriginHeadersConfigurable(t *testing.T) {
+	old := originHeaders
+	originHeaders = map[string]string{
+		"User-Agent": "TestAgent/1.0",
+		"Accept":     "image/png",
+		"Referer":    "https://example.com/",
+	}
+	t.Cleanup(func() { originHeaders = old })
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range originHeaders {
+			if r.Header.Get(k) != v {
+				t.Errorf("header %s = %q, want %q", k, r.Header.Get(k), v)
+			}
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(200)
+	}))
+	defer origin.Close()
+
+	if w := doReq(t, "/image?url="+url.QueryEscape(origin.URL+"/a.png")); w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestNormalizeVertbaudetFstrz(t *testing.T) {
+	cases := map[string]string{
+		// Frisbii reverse-proxied path → direct CDN (fixes the 403).
+		"https://www.vertbaudet.fr/fstrz/r/s/media.vertbaudet.fr/Pictures/vertbaudet/1459868/jean-large-fille.jpg": "https://media.vertbaudet.fr/Pictures/vertbaudet/1459868/jean-large-fille.jpg",
+		"https://www.vertbaudet.fr/fstrz/r/s/media.vertbaudet.fr/Pictures/vertbaudet/1402886/x.jpg?w=100":          "https://media.vertbaudet.fr/Pictures/vertbaudet/1402886/x.jpg?w=100",
+		// Already-direct and unrelated URLs are untouched.
+		"https://media.vertbaudet.fr/Pictures/vertbaudet/1450502/sweat.jpg": "https://media.vertbaudet.fr/Pictures/vertbaudet/1450502/sweat.jpg",
+		"https://www.vertbaudet.fr/Pictures/vertbaudet/999/x.jpg":           "https://www.vertbaudet.fr/Pictures/vertbaudet/999/x.jpg",
+		"https://www.sephora.com/img/x.jpg":                                 "https://www.sephora.com/img/x.jpg",
+	}
+	for in, want := range cases {
+		u, err := url.Parse(in)
+		if err != nil {
+			t.Fatalf("parse %s: %v", in, err)
+		}
+		normalizeOriginURL(u)
+		if got := u.String(); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeFirebaseAltMedia(t *testing.T) {
+	cases := map[string]string{
+		"https://firebasestorage.googleapis.com/v0/b/x.appspot.com/o/img":         "https://firebasestorage.googleapis.com/v0/b/x.appspot.com/o/img?alt=media",
+		"https://firebasestorage.googleapis.com/v0/b/x/o/img?token=abc&alt=media": "https://firebasestorage.googleapis.com/v0/b/x/o/img?token=abc&alt=media",
+		"https://firebasestorage.googleapis.com/v0/b/x/o/img?alt=media":           "https://firebasestorage.googleapis.com/v0/b/x/o/img?alt=media",
+		"https://www.google.com/img/x.jpg":                                        "https://www.google.com/img/x.jpg",
+	}
+	for in, want := range cases {
+		u, err := url.Parse(in)
+		if err != nil {
+			t.Fatalf("parse %s: %v", in, err)
+		}
+		normalizeOriginURL(u)
+		if got := u.String(); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestOriginStatusPassthrough(t *testing.T) {
 	origin := httptest.NewServer(http.NotFoundHandler())
 	defer origin.Close()
